@@ -7,6 +7,84 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id              String               @id @default(uuid()) @db.Uuid
+  emailRaw        String
+  email           String               @unique
+  passwordHash    String
+  role            String               @default("viewer")
+  status          String               @default("pending")
+  emailVerifiedAt DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  activation      ActivationChallenge?
+  passwordResets  PasswordReset[]
+
+  @@map("User")
+}
+
+model ActivationChallenge {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @unique @db.Uuid
+  purpose         String    @default("activation")
+  otpHash         String
+  expiresAt       DateTime
+  attempts        Int       @default(0)
+  lockedUntil     DateTime?
+  lastSentAt      DateTime
+  sendCount       Int       @default(1)
+  sendWindowStart DateTime
+  usedAt          DateTime?
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ActivationChallenge")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("PasswordReset")
+}
+
+model CaptchaChallenge {
+  id        String    @id @db.Uuid
+  anonId    String
+  purpose   String
+  answer    String
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([expiresAt])
+  @@map("CaptchaChallenge")
+}
+
+model RateLimit {
+  key         String    @id
+  count       Int       @default(0)
+  windowStart DateTime
+  lockedUntil DateTime?
+
+  @@index([windowStart])
+  @@index([lockedUntil])
+  @@map("RateLimit")
+}
+
+model Session {
+  sid    String   @id @db.VarChar(255)
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire])
+  @@map("session")
+}
+
 model Dish {
   id          Int          @id @default(autoincrement())
   name        String

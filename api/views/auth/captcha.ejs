@@ -1,0 +1,11 @@
+<div class="captcha" data-captcha-purpose="<%= purpose %>">
+  <div class="captcha-image">
+    <img alt="Mã xác minh CAPTCHA"<% if (captcha) { %> src="data:image/svg+xml;charset=utf-8,<%- encodeURIComponent(captcha.svg) %>"<% } else { %> hidden<% } %>>
+  </div>
+  <input type="hidden" name="captchaChallengeId" value="<%= captcha?.challengeId || '' %>">
+  <label>Mã xác minh
+    <input type="text" name="captchaAnswer" autocomplete="off" required aria-label="Nhập mã xác minh CAPTCHA">
+  </label>
+  <button class="secondary captcha-refresh" type="button">Đổi mã</button>
+  <span class="hint" aria-live="polite">Nếu không đọc được mã, hãy bấm “Đổi mã”.</span>
+</div>

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quên mật khẩu | Restaurant App</title>
+    <link rel="stylesheet" href="/auth.css">
+  </head>
+  <body>
+    <main class="auth-card">
+      <a class="brand" href="/login">Restaurant App</a>
+      <h1>Quên mật khẩu</h1>
+      <% if (message) { %><p class="<%= errorCode ? 'error' : 'notice' %>"<% if (errorCode) { %> data-error-code="<%= errorCode %>"<% } %> role="alert"><%= message %></p><% } %>
+      <form method="post" action="/forgot">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Email đăng ký
+          <input type="email" name="email" autocomplete="email" required maxlength="254" value="<%= email %>">
+        </label>
+        <button type="submit">Gửi hướng dẫn</button>
+      </form>
+      <p><a href="/login">Quay lại đăng nhập</a></p>
+    </main>
+  </body>
+</html>

@@ -1,32 +1,33 @@
-# Block 7 — Tech choices
+# Block 8 — Lựa chọn công nghệ
 
-## Stack and database
+## Giữ nguyên nền Block 7
 
-- Giữ Node.js/Express, Prisma, React, React Router và PostgreSQL/Supabase của Block 6; không thêm runtime dependency.
-- Giữ `GET /api/dishes` làm endpoint thống nhất. Danh sách mới trả envelope `ok/data/error` với `data.items`, `total`, `page`, `pageSize`. Trang quản trị cũ tiếp tục dùng cùng endpoint và API client tải nối các trang 100 món để giữ danh sách hiện có.
-- Các query `category`/`status` cũ không kèm `mode` tiếp tục được hiểu là lọc nâng cao; client quản trị hiện tại dịch `status` sang tham số mới `available=true|false`.
-- Schema Block 6 đã có `description String?`, `category`, `available` và `price Int`. Giữ nguyên cột giá nguyên (đơn vị tiền nguyên/VND) để tương thích; cho phép giá 0 ở validation. Dữ liệu category/null description có thể tiếp tục tồn tại.
-- Không reset/baseline lại database Supabase đang có dữ liệu. `migrate:block7` chạy các câu DDL cố định từ migration có `IF NOT EXISTS`; không đưa input/request vào câu lệnh. Cách này tránh Prisma `migrate deploy` từ chối schema không rỗng (`P3005`) khi dự án trước đó dùng `db:push`.
+| Công nghệ | Lựa chọn và lý do |
+|---|---|
+| Node.js + Express | Giữ backend hiện có, router và middleware theo cùng phong cách CommonJS; tránh dựng project mới và không làm đổi endpoint CRUD. |
+| Prisma + PostgreSQL/Supabase | Giữ ORM/schema hiện tại và dữ liệu Block 7. Auth được thêm bằng migration SQL `IF NOT EXISTS`; không reset schema, không chạy lại seed 1.000 món. |
+| React 18 + React Router + Vite | Giữ nguyên SPA. Vite dev server proxy request auth/API tới Express và kiểm tra session trước khi phân phối module/static của SPA; production Express chỉ phân phối `web/dist` sau `requireLogin`. |
+| `dotenv` | Đã dùng trong API; giữ lại để cấu hình môi trường và bổ sung `.env.example`, không đưa secret vào mã nguồn. |
+| `validator` | Thêm cho `isEmail`, thay vì tự duy trì regex email. |
 
-## Query and paging
+## Phần xác thực mới
 
-- Server-side `LIMIT/OFFSET` chỉ trả tối đa số món của trang; chuyển trang tải JSON tiếp theo thay vì HTML mới hay toàn bộ bảng. Frontend dùng `fetch`/AJAX để giữ SPA.
-- Cả filter và sort nằm ở PostgreSQL, trước `LIMIT/OFFSET`, nên áp dụng lên toàn tập kết quả khớp điều kiện chứ không chỉ trang đang xem. Sort được whitelist, luôn có `id ASC` làm tie-breaker.
-- Một hàm predicate duy nhất tạo `WHERE` cho cả truy vấn lấy ID và `COUNT(*)`; các phần động trong truy vấn tìm kiếm dùng `Prisma.sql` parameter binding. Tên cột/hướng sort là các fragment cố định từ whitelist.
-- `basic` và `advanced.q` dùng `ILIKE ... ESCAPE '!'`. Escape lần lượt `!` thành `!!`, `%` thành `!%`, `_` thành `!_`, rồi bọc pattern trong `%`; ký tự người dùng không trở thành wildcard.
-- `fulltext` tạo document bằng `to_tsvector('simple', coalesce(name,'') || ' ' || coalesce(description,''))`, query bằng `plainto_tsquery('simple', q)`. Cùng cấu hình `simple` và `coalesce` bảo đảm từ ở các vị trí khác nhau vẫn khớp và description NULL không lỗi.
-- `fuzzy` dùng `similarity(name, q)` cho toàn tên, ngưỡng `FUZZY_SIMILARITY_THRESHOLD = 0.3`; sắp theo điểm giảm dần rồi ID tăng dần. Full-text cũng sắp theo `ts_rank` giảm dần rồi ID; hai mode bỏ qua sort do người dùng chọn.
+| Công nghệ | Lựa chọn và lý do / đánh đổi |
+|---|---|
+| `express-session` | Middleware session chuẩn cho Express; hỗ trợ regenerate khi đăng nhập, rolling cookie và middleware hiện có. |
+| `connect-pg-simple` + `pg` | Session lưu bền trong PostgreSQL, không dùng MemoryStore. Bảng `session` được migration quản lý (`createTableIfMissing: false`); mặc định dùng `DATABASE_URL`, có thể đặt `SESSION_DATABASE_URL` để dùng `DIRECT_URL` nếu pooler không tương thích. |
+| `argon2` | Hash password bằng Argon2id; chi phí tính toán cao hơn hash nhanh và phù hợp lưu password. |
+| `svg-captcha` | Sinh CAPTCHA SVG phía server. Đáp án giữ ở server; thử thách được ràng buộc với phiên ẩn danh, mục đích và hạn dùng. |
+| `nodemailer` | Gửi email qua SMTP cấu hình từ `.env`; khi chưa có SMTP, dùng Ethereal để thử và chỉ ghi URL xem trước email vào log. |
+| `ejs` | Render các biểu mẫu auth trực tiếp từ server, không phải thêm route auth phía SPA. |
+| CSRF middleware tự viết | Token synchronizer gắn với session, so sánh constant-time; đồng thời từ chối `Origin` khác `APP_ORIGIN`. Không thêm thư viện khác. |
+| Rate limiter PostgreSQL tự viết | Dùng upsert nguyên tử trên `RateLimit` để giữ bộ đếm qua lần khởi động lại và không cần Redis. |
+| API client hiện có | Đổi base URL tuyệt đối sang đường dẫn cùng origin và thêm CSRF header/điều hướng đăng nhập mà không thay đổi hợp đồng response Block 7. |
 
-## URL and display modes
+## Ràng buộc tương thích và đánh đổi
 
-- Query string giữ `view`, mode, từ khóa, filter, sort, `pageSize` và `page`. Reload, history Back/Forward và URL được sao chép có thể khôi phục cùng điều kiện.
-- Số trang khôi phục trang đang yêu cầu. Load More/Infinite Scroll luôn mở lại từ trang 1; URL không lưu các trang đã tải nối.
-- Thay đổi điều kiện đã áp dụng, page size hoặc kiểu hiển thị quay về trang 1. Ô nhập là draft, chỉ nút Tìm kiếm áp dụng từ khóa/filter/sort; Xóa điều kiện giữ kiểu hiển thị/page size và bỏ filter.
-- Load More và Infinite Scroll dùng chung `loadNext`, `pending` đồng bộ, `AbortController` và generation key để không gửi trùng hoặc để response cũ ghi đè. Lỗi giữ nguyên trang để nút Thử lại tải lại đúng trang.
-- Infinite Scroll quan sát sentinel sau danh sách bằng `IntersectionObserver` với `rootMargin: "200px 0px"`; có nút tải dự phòng cho bàn phím và ngừng quan sát khi kết thúc/đổi view/rời trang.
-
-## Seed assumptions
-
-- Giữ nguyên seed Block 6; thêm `seed:block7` riêng. Script xóa chỉ các món do chính script nhận diện (`B7 Seed ` hoặc marker mô tả fixture), sau đó thêm 1.000 món xác định và 6 fixture. Mô tả NULL được đặt trên các tên `B7 Seed ` nên lượt seed sau vẫn nhận diện để xóa và không nhân đôi. Trường `createdAt` cũng dùng một mốc cố định.
-- Danh mục cho API/UI là tám giá trị tiếng Việt cố định, gồm các danh mục hiện có và `Món Nướng`, `Đồ Uống`; bộ seed sinh đủ tám nhóm.
-- `price` vẫn là số nguyên vì Block 6 lưu tiền theo đơn vị nguyên; không có yêu cầu tiền lẻ trong form/schema hiện tại.
+- Không bật CORS cho SPA; Vite proxy giữ cookie `SameSite=Lax` cùng origin. Production cần reverse proxy/static host cùng origin.
+- Không thêm framework bảo mật/validation mới; security headers được giới hạn vào yêu cầu hiện tại. Reverse proxy vẫn cần TLS khi chạy production.
+- Mail Ethereal chỉ dành cho phát triển; môi trường thật phải cấu hình SMTP.
+- Các view auth được phục vụ riêng bằng EJS; CRUD và SPA Block 7 không được chuyển sang SSR.
+- Không nâng `react-router-dom` đang có của Block 7 vì đây là nâng major ngoài phạm vi auth; frontend dependency audit hiện còn advisories ở dependency cũ và cần một đợt nâng cấp riêng.

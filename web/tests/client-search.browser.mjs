@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { loginSeedUser } from "./auth-helper.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -20,11 +21,19 @@ try
   const requests = [];
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://localhost:3000/api/**", async (route) =>
+  await page.route("**/api/**", async (route) =>
   {
     assert.equal(route.request().method(), "GET");
     const url = new URL(route.request().url());
     requests.push(url);
+    if (url.pathname === "/api/me") {
+      await route.fulfill({ json: { email: "browser-test@example.test" } });
+      return;
+    }
+    if (url.pathname === "/api/csrf") {
+      await route.fulfill({ json: { token: "browser-test-csrf" } });
+      return;
+    }
     const data = url.pathname === "/api/chefs" ? chefs : url.pathname === "/api/ingredients" ? ingredients : {
       items: [{ id: 1, name: "Bánh hỏi heo quay", price: 50000, category: "Món Khô", available: true, chef: chefs[0], ingredients }],
       total: 1, page: 1, pageSize: 10,
@@ -32,6 +41,7 @@ try
     await route.fulfill({ json: { ok: true, data, error: null } });
   });
 
+  await loginSeedUser(page, base);
   await page.goto(base + "/admin/chefs");
   await page.locator(".data-table tbody tr").nth(1).waitFor();
   const chefLoads = requests.length;

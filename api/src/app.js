@@ -1,65 +1,82 @@
 require("dotenv").config();
+require("dotenv").config({ path: require("node:path").resolve(__dirname, "../../.env") });
+const path = require("node:path");
 const express = require("express");
-
 const dishesRouter = require("./routes/dishes");
 const chefsRouter = require("./routes/chefs");
 const ingredientsRouter = require("./routes/ingredients");
+const authRouter = require("./routes/auth");
+const { createSessionMiddleware } = require("./services/session");
+const { csrfTokenMiddleware } = require("./middleware/csrf");
+const { requireLogin } = require("./middleware/requireLogin");
+const { getTrustProxy } = require("./config/authPolicy");
 
 const app = express();
+const webDist = path.resolve(__dirname, "../../web/dist");
+const publicDirectory = path.resolve(__dirname, "../public");
 
-// 1. Cấu hình CORS chặt chẽ theo tiêu chuẩn bài học
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+app.disable("x-powered-by");
+app.set("trust proxy", getTrustProxy());
+app.set("view engine", "ejs");
+app.set("views", path.resolve(__dirname, "../views"));
 
-app.use((req, res, next) => {
-  // Chỉ chấp nhận Origin của SPA, tuyệt đối không dùng wildcard *
-  res.setHeader("Access-Control-Allow-Origin", CLIENT_ORIGIN);
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+app.use(createSessionMiddleware());
+app.use("/api", requireLogin);
+app.post("/logout", requireLogin);
+app.use(express.urlencoded({ extended: false, limit: "16kb" }));
+app.use(express.json({ limit: "100kb" }));
+app.use(csrfTokenMiddleware);
 
-  // Xử lý Preflight Request (OPTIONS) kích hoạt bởi PATCH/DELETE hoặc Content-Type: application/json
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-  next();
-});
+app.use(express.static(publicDirectory));
+app.use(authRouter);
 
-// 2. Parse payload JSON (bắt buộc cho REST API)
-app.use(express.json());
-
-// 3. Đăng ký các tài nguyên REST API
 app.use("/api/dishes", dishesRouter);
 app.use("/api/chefs", chefsRouter);
 app.use("/api/ingredients", ingredientsRouter);
-
-// 4. Xử lý lỗi kỹ thuật 404: Route không tồn tại trên hệ thống
-// Chú ý: Không bọc theo response shape { ok: false } để SPA phân biệt với lỗi nghiệp vụ!
-app.use((req, res) => {
+app.use("/api", (req, res) => {
   res.status(404).json({
     statusCode: 404,
     error: "Not Found",
-    message: `Đường dẫn "${req.originalUrl}" không tồn tại trên máy chủ API.`,
+    message: "Đường dẫn API không tồn tại.",
   });
 });
 
-// 5. Middleware xử lý lỗi kỹ thuật tập trung 500 (Hệ thống sập, mất DB) (Slide 49, 51)
-app.use((err, req, res, next) => {
-  // Ghi log lỗi máy chủ an toàn: KHÔNG in chuỗi kết nối database hay mật khẩu
-  console.error("Lỗi Máy Chủ Nội Bộ:", {
-    name: err && err.name,
-    message: err && err.message,
-    method: req.method,
-    url: req.originalUrl,
+app.use(requireLogin, express.static(webDist, { index: false }));
+app.get("*", requireLogin, (req, res, next) => {
+  res.sendFile(path.join(webDist, "index.html"), (error) => {
+    if (error) next(error);
   });
+});
 
-  if (res.headersSent) {
-    return next(err);
+app.use((req, res) => {
+  res.status(404).render("auth/error", {
+    title: "Không tìm thấy trang",
+    message: "Đường dẫn không tồn tại.",
+    errorCode: "NOT_FOUND",
+    csrfToken: req.session?.csrfToken || "",
+  });
+});
+
+app.use((error, req, res, next) => {
+  console.error("Request failed.", {
+    name: error?.name,
+    code: /^P\d{4}$/.test(error?.code) ? error.code : undefined,
+    method: req.method,
+    path: req.path,
+  });
+  if (res.headersSent) return next(error);
+  if (req.path.startsWith("/api/")) {
+    return res.status(500).json({
+      statusCode: 500,
+      error: "Internal Server Error",
+      message: "Đã xảy ra sự cố kỹ thuật.",
+    });
   }
-
-  // Trả về HTTP 500 kỹ thuật thuần túy, không có trường ok
-  res.status(500).json({
-    statusCode: 500,
-    error: "Internal Server Error",
-    message: "Đã xảy ra sự cố kỹ thuật trên máy chủ API. Vui lòng kiểm tra lại log server.",
+  res.status(500).render("auth/error", {
+    title: "Lỗi máy chủ",
+    message: "Đã xảy ra sự cố kỹ thuật. Vui lòng thử lại sau.",
+    errorCode: "INTERNAL_ERROR",
+    csrfToken: req.session?.csrfToken || "",
   });
 });
 

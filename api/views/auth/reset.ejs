@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Đặt lại mật khẩu | Restaurant App</title>
+    <link rel="stylesheet" href="/auth.css">
+  </head>
+  <body>
+    <main class="auth-card">
+      <a class="brand" href="/login">Restaurant App</a>
+      <h1>Đặt lại mật khẩu</h1>
+      <% if (message) { %><p class="<%= errorCode ? 'error' : 'notice' %>"<% if (errorCode) { %> data-error-code="<%= errorCode %>"<% } %> role="alert"><%= message %></p><% } %>
+      <% if (linkValid) { %>
+        <form method="post" action="/reset">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="token" value="<%= token %>">
+          <label>Mật khẩu mới
+            <input type="password" name="password" autocomplete="new-password" required minlength="8" maxlength="128">
+          </label>
+          <p class="hint">Mật khẩu dài 8–128 ký tự, có ít nhất một chữ cái và một chữ số.</p>
+          <button type="submit">Đổi mật khẩu</button>
+        </form>
+      <% } %>
+      <p><a href="/login">Quay lại đăng nhập</a></p>
+    </main>
+  </body>
+</html>

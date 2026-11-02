@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
+import { loginSeedUser } from "./auth-helper.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -37,10 +38,18 @@ async function setup(width, options = {})
   let releaseChefs;
   const chefGate = options.delayChefs ? new Promise((resolve) => { releaseChefs = resolve; }) : Promise.resolve();
   await page.route("https://**", (route) => route.abort());
-  await page.route("http://localhost:3000/api/**", async (route) =>
+  await page.route("**/api/**", async (route) =>
   {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/api/me") {
+      await route.fulfill({ json: { email: "browser-test@example.test" } });
+      return;
+    }
+    if (url.pathname === "/api/csrf") {
+      await route.fulfill({ json: { token: "browser-test-csrf" } });
+      return;
+    }
     let data;
     if (request.method() !== "GET")
     {
@@ -73,6 +82,7 @@ async function setup(width, options = {})
     await route.fulfill({ json: { ok: true, data } });
   });
   page.on("pageerror", (error) => { throw error; });
+  await loginSeedUser(page, base);
   return { page, context, writes, releaseChefs, allowChefs: () => { chefFailed = false; } };
 }
 

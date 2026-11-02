@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><%= title %> | Restaurant App</title>
+    <link rel="stylesheet" href="/auth.css">
+  </head>
+  <body>
+    <main class="auth-card">
+      <a class="brand" href="/login">Restaurant App</a>
+      <h1><%= title %></h1>
+      <p class="error" data-error-code="<%= errorCode %>" role="alert"><%= message %></p>
+      <p><a href="/login">Quay lại đăng nhập</a></p>
+    </main>
+  </body>
+</html>

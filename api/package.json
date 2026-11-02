@@ -6,11 +6,14 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test tests/api.test.js",
+    "test": "node --test tests/api.test.js tests/auth.test.js",
     "test:search": "node --test tests/search.test.js",
+    "test:auth": "node --test tests/auth.test.js",
     "seed": "node prisma/seed.js",
+    "seed:auth": "node prisma/seed_auth.js",
     "seed:block7": "node prisma/seed_block7.js",
     "migrate:block7": "node prisma/migrate_block7.js",
+    "migrate:auth": "node prisma/migrate_auth.js",
     "verify:block7": "node tests/verify-block7.js",
     "db:push": "npx prisma db push",
     "db:generate": "npx prisma generate"
@@ -20,9 +23,16 @@
   },
   "dependencies": {
     "@prisma/client": "^5.21.1",
-    "cors": "^2.8.5",
+    "argon2": "^0.41.1",
+    "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.5",
-    "express": "^4.21.1"
+    "ejs": "^7.0.2",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "nodemailer": "^10.3.1",
+    "pg": "^8.13.1",
+    "svg-captcha": "^1.4.0",
+    "validator": "^13.12.0"
   },
   "devDependencies": {
     "prisma": "^5.21.1",

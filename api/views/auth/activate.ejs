@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kích hoạt tài khoản | Restaurant App</title>
+    <link rel="stylesheet" href="/auth.css">
+  </head>
+  <body>
+    <main class="auth-card">
+      <a class="brand" href="/login">Restaurant App</a>
+      <h1>Kích hoạt tài khoản</h1>
+      <% if (message) { %><p class="<%= errorCode ? 'error' : 'notice' %>"<% if (errorCode) { %> data-error-code="<%= errorCode %>"<% } %> role="alert"><%= message %></p><% } %>
+      <form method="post" action="/activate">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Email
+          <input type="email" name="email" autocomplete="email" required maxlength="254" value="<%= email %>">
+        </label>
+        <label>Mã kích hoạt
+          <input type="text" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+        </label>
+        <button type="submit">Kích hoạt</button>
+      </form>
+      <form method="post" action="/activate/resend">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <input type="hidden" name="email" value="<%= email %>">
+        <button class="secondary" type="submit">Gửi lại mã</button>
+      </form>
+      <p><a href="/login">Quay lại đăng nhập</a></p>
+    </main>
+  </body>
+</html>

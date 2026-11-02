@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
+import { loginSeedUser } from "./auth-helper.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -175,9 +176,17 @@ try
     let failNext = false;
     let delayNext = false;
     let release;
-    await page.route("http://localhost:3000/api/**", async (route) =>
+    await page.route("**/api/**", async (route) =>
     {
       const url = new URL(route.request().url());
+      if (url.pathname === "/api/me") {
+        await route.fulfill({ json: { email: "browser-test@example.test" } });
+        return;
+      }
+      if (url.pathname === "/api/csrf") {
+        await route.fulfill({ json: { token: "browser-test-csrf" } });
+        return;
+      }
       if (delayNext)
       {
         delayNext = false;
@@ -200,6 +209,7 @@ try
       }
       await route.fulfill({ json: { ok: true, data } });
     });
+    await loginSeedUser(page, base);
     if (process.env.NAVIGATION_ONLY === "1")
     {
       if (width < 768)

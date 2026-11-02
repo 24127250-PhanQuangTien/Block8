@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir, writeFile } from "node:fs/promises";
+import { loginSeedUser } from "./auth-helper.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
@@ -68,11 +69,19 @@ try
     const writes = [];
     let invalid = true;
     await page.route("https://**", (route) => route.abort());
-    await page.route("http://localhost:3000/api/**", async (route) =>
+    await page.route("**/api/**", async (route) =>
     {
       const request = route.request();
       const url = new URL(request.url());
       requests.push(url);
+      if (url.pathname === "/api/me") {
+        await route.fulfill({ json: { email: "browser-test@example.test" } });
+        return;
+      }
+      if (url.pathname === "/api/csrf") {
+        await route.fulfill({ json: { token: "browser-test-csrf" } });
+        return;
+      }
       if (request.method() !== "GET")
       {
         writes.push({ method: request.method(), body: request.postDataJSON() });
@@ -106,6 +115,7 @@ try
     });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    await loginSeedUser(page, base);
     await page.goto(`${base}/admin/dishes`);
     await page.locator(".spa-loading").waitFor({ state: "hidden" });
     const status = page.getByRole("combobox", { name: "Trạng thái bếp", exact: true });

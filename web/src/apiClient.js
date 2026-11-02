@@ -1,5 +1,45 @@
 // Nơi duy nhất định nghĩa URL gốc của API (Slide 29, 50)
-export const API_BASE_URL = "http://localhost:3000/api";
+export const API_BASE_URL = "/api";
+
+let csrfTokenPromise;
+
+async function getCsrfToken() {
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetch("/api/csrf", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (response.redirected && new URL(response.url).pathname === "/login") {
+          window.location.assign("/login");
+          throw new Error("Authentication required.");
+        }
+        if (!response.ok) throw new Error("Không lấy được mã CSRF.");
+        return (await response.json()).token;
+      })
+      .catch((error) => {
+        csrfTokenPromise = undefined;
+        throw error;
+      });
+  }
+  return csrfTokenPromise;
+}
+
+export async function apiFetch(url, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { ...options.headers };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers["X-CSRF-Token"] = await getCsrfToken();
+  }
+  const response = await fetch(url, {
+    ...options,
+    method,
+    headers,
+    credentials: "same-origin",
+  });
+  if (response.redirected && new URL(response.url).pathname === "/login") {
+    window.location.assign("/login");
+    throw new Error("Authentication required.");
+  }
+  return response;
+}
 
 /**
  * Hàm gọi API tổng quát bóc tách chính xác 3 tầng lỗi theo tiêu chuẩn bài giảng
@@ -12,7 +52,7 @@ export async function apiRequest(endpoint, options = {}) {
 
   // --- TẦNG 1: Kiểm tra lỗi mạng hoặc bị CORS chặn ---
   try {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    response = await apiFetch(`${API_BASE_URL}${endpoint}`, {
       headers: {
         "Content-Type": "application/json",
         ...options.headers,

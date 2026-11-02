@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Đăng nhập | Restaurant App</title>
+    <link rel="stylesheet" href="/auth.css">
+    <script defer src="/auth.js"></script>
+  </head>
+  <body>
+    <main class="auth-card">
+      <a class="brand" href="/login">Restaurant App</a>
+      <h1>Đăng nhập</h1>
+      <% if (message) { %><p class="<%= errorCode ? 'error' : 'notice' %>"<% if (errorCode) { %> data-error-code="<%= errorCode %>"<% } %> role="alert"><%= message %></p><% } %>
+      <% if (showActivationLink) { %><p><a href="/activate">Đến trang kích hoạt tài khoản</a></p><% } %>
+      <form method="post" action="/login">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Email
+          <input type="email" name="email" autocomplete="username" required maxlength="254" value="<%= email %>">
+        </label>
+        <label>Mật khẩu
+          <input type="password" name="password" autocomplete="current-password" required maxlength="128">
+        </label>
+        <% if (showCaptcha) { %><%- include("captcha", { purpose: "login", captcha }) %><% } %>
+        <button type="submit">Đăng nhập</button>
+      </form>
+      <p><a href="/forgot">Quên mật khẩu?</a></p>
+      <p>Chưa có tài khoản? <a href="/register">Đăng ký</a></p>
+    </main>
+  </body>
+</html>

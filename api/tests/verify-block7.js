@@ -1,15 +1,18 @@
+const path = require("node:path");
 require("dotenv").config();
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 const assert = require("node:assert/strict");
 const { Prisma } = require("@prisma/client");
 const prisma = require("../src/prisma");
+const { closeSessionPool } = require("../src/services/session");
+const { createAuthenticatedAgent } = require("./helpers/authenticatedAgent");
 
-const API_BASE = (process.env.BLOCK7_API_URL || "http://localhost:3000/api").replace(/\/$/, "");
 const failures = [];
+let agent;
 
 async function get(params = {}) {
-  const query = new URLSearchParams(params);
-  const response = await fetch(`${API_BASE}/dishes?${query}`);
-  return { status: response.status, body: await response.json() };
+  const response = await agent.get("/api/dishes").query(params);
+  return { status: response.status, body: response.body };
 }
 
 function check(name, callback) {
@@ -40,6 +43,7 @@ async function getAll(params = {}, pageSize = 100) {
 }
 
 async function main() {
+  agent = await createAuthenticatedAgent();
   const all = await getAll({}, 37);
   check("at least 1,000 dishes are seeded", () => assert.ok(all.total >= 1000));
   check("all pages cover each dish once", () => {
@@ -183,5 +187,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await Promise.all([prisma.$disconnect(), closeSessionPool()]);
   });

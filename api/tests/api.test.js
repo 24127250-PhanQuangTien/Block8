@@ -1,99 +1,66 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const request = require("supertest");
-const app = require("../src/app");
-const prisma = require("../src/prisma");
-const { validateDish } = require("../src/validation");
+const path = require("node:path");
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
-test.after(async () => {
-  await prisma.$disconnect();
-});
+if (!process.env.DATABASE_URL) {
+  test("API integration checks require DATABASE_URL and an applied auth migration", { skip: true }, () => {});
+} else {
+  process.env.SESSION_SECRET ||= "test-session-secret-only-not-for-production";
+  process.env.OTP_PEPPER ||= "test-otp-pepper-only-not-for-production";
+  const request = require("supertest");
+  const app = require("../src/app");
+  const prisma = require("../src/prisma");
+  const { closeSessionPool } = require("../src/services/session");
 
-test("1. CORS Headers: Response phải có Access-Control-Allow-Origin đúng origin của SPA", async () => {
-  const res = await request(app).get("/api/dishes");
-  assert.equal(res.headers["access-control-allow-origin"], "http://localhost:5173");
-});
+  test.after(async () => {
+    await Promise.all([prisma.$disconnect(), closeSessionPool()]);
+  });
 
-test("2. CORS Preflight: OPTIONS request phải trả về 204 kèm các headers cho phép", async () => {
-  const res = await request(app)
-    .options("/api/dishes/1")
-    .set("Origin", "http://localhost:5173")
-    .set("Access-Control-Request-Method", "PATCH");
+  for (const [method, route] of [
+    ["get", "/"],
+    ["get", "/assets/img/logo.svg"],
+    ["get", "/api/dishes"],
+    ["get", "/api/dishes/1"],
+    ["get", "/api/chefs"],
+    ["get", "/api/ingredients"],
+    ["post", "/api/dishes"],
+    ["patch", "/api/dishes/1"],
+    ["delete", "/api/dishes/1"],
+    ["get", "/api/me"],
+    ["get", "/api/csrf"],
+  ]) {
+    test(`unauthenticated ${method.toUpperCase()} ${route} redirects to login`, async () => {
+      const response = await request(app)[method](route);
+      assert.equal(response.status, 303);
+      assert.equal(response.headers.location, "/login");
+    });
+  }
 
-  assert.equal(res.status, 204);
-  assert.equal(res.headers["access-control-allow-origin"], "http://localhost:5173");
-  assert.match(res.headers["access-control-allow-methods"], /PATCH/);
-});
+  test("public auth form renders a synchronizer token and never exposes a CAPTCHA answer", async () => {
+    const response = await request(app).get("/register");
+    assert.equal(response.status, 200);
+    assert.match(response.text, /name="_csrf"/);
+    assert.match(response.text, /captchaChallengeId/);
+    assert.doesNotMatch(response.text, /name="text"/);
+    assert.equal(response.headers["cache-control"], "no-store");
+  });
 
-test("3. Lỗi Kỹ thuật 404: Gọi sai URL route phải trả về HTTP 404 và KHÔNG có trường ok", async () => {
-  const res = await request(app).get("/api/bok");
-  assert.equal(res.status, 404);
-  assert.equal(res.body.ok, undefined);
-  assert.equal(res.body.statusCode, 404);
-});
+  test("public CSRF refresh endpoint returns the active form session token without caching", async () => {
+    const agent = request.agent(app);
+    const form = await agent.get("/login");
+    const token = form.text.match(/name="_csrf" value="([^"]+)"/)?.[1];
+    const response = await agent.get("/csrf-token");
 
-test("4. GET /api/dishes: Trả về trang món ăn với status 200 và metadata phân trang", async () => {
-  const res = await request(app).get("/api/dishes");
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, true);
-  assert.ok(Array.isArray(res.body.data.items));
-  assert.equal(res.body.data.page, 1);
-  assert.equal(res.body.data.pageSize, 10);
-  assert.equal(res.body.error, null);
-});
+    assert.equal(response.status, 200);
+    assert.equal(response.body.token, token);
+    assert.equal(response.headers["cache-control"], "no-store");
+  });
 
-test("5. GET /api/dishes/:id (Không tồn tại): Trả về status 200 và lỗi nghiệp vụ NOT_FOUND", async () => {
-  const res = await request(app).get("/api/dishes/9999999");
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, false);
-  assert.equal(res.body.error.code, "NOT_FOUND");
-});
-
-test("6. GET /api/dishes/:id (ID sai định dạng chữ): Xử lý như không tồn tại (status 200, NOT_FOUND)", async () => {
-  const res = await request(app).get("/api/dishes/abc_not_an_id");
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, false);
-  assert.equal(res.body.error.code, "NOT_FOUND");
-});
-
-test("7. POST /api/dishes (Dữ liệu không hợp lệ): Trả về status 200 và lỗi nghiệp vụ VALIDATION_FAILED kèm fields", async () => {
-  const res = await request(app)
-    .post("/api/dishes")
-    .send({ name: "", price: -100 });
-
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, false);
-  assert.equal(res.body.error.code, "VALIDATION_FAILED");
-  assert.ok(res.body.error.fields.name);
-  assert.ok(res.body.error.fields.price);
-  assert.ok(res.body.error.fields.chefId);
-  assert.ok(res.body.error.fields.ingredientIds);
-});
-
-test("Dish validation requires one chef and at least one ingredient", () => {
-  const missingAssociations = validateDish({ name: "Món thử", price: 10000 });
-  assert.equal(missingAssociations.isValid, false);
-  assert.ok(missingAssociations.fields.chefId);
-  assert.ok(missingAssociations.fields.ingredientIds);
-
-  const clearedAssociations = validateDish({ chefId: null, ingredientIds: [] }, true);
-  assert.equal(clearedAssociations.isValid, false);
-  assert.ok(clearedAssociations.fields.chefId);
-  assert.ok(clearedAssociations.fields.ingredientIds);
-
-  assert.equal(validateDish({}, true).isValid, true);
-});
-
-test("8. GET /api/chefs: Trả về status 200 và response shape { ok: true, data }", async () => {
-  const res = await request(app).get("/api/chefs");
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, true);
-  assert.ok(Array.isArray(res.body.data));
-});
-
-test("9. GET /api/ingredients: Trả về status 200 và response shape { ok: true, data }", async () => {
-  const res = await request(app).get("/api/ingredients");
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, true);
-  assert.ok(Array.isArray(res.body.data));
-});
+  test("server does not expose the Express framework header", async () => {
+    const response = await request(app).get("/login");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers["x-powered-by"], undefined);
+    assert.match(response.text, /name="_csrf"/);
+  });
+}

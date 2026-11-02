@@ -1,12 +1,15 @@
 import { ArrowRight, Menu, X } from "lucide-react";
 import React, { useState, useEffect, useRef } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import { apiFetch } from "../apiClient";
 
 export default function Navbar() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith("/admin");
   const [isScrolled, setIsScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [logoutError, setLogoutError] = useState("");
   const toggleRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -35,6 +38,34 @@ export default function Navbar() {
     handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch("/api/me")
+      .then((response) => response.ok ? response.json() : null)
+      .then((user) => {
+        if (active && user?.email) setEmail(user.email);
+      })
+      .catch((error) => {
+        if (active) {
+          console.error("Could not load the signed-in account.", { name: error.name });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleLogout() {
+    try {
+      const response = await apiFetch("/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Logout request was rejected.");
+      window.location.assign("/login");
+    } catch (error) {
+      setLogoutError("Đăng xuất chưa thành công. Vui lòng thử lại.");
+      console.error("Logout request failed.", { name: error.name });
+    }
+  }
 
   // Đóng menu mobile khi chuyển route
   useEffect(() =>
@@ -173,6 +204,12 @@ export default function Navbar() {
             </div>
           </>
         )}
+
+        <div className="navbar__session">
+          <span className="navbar__email" title={email}>{email}</span>
+          {logoutError && <span role="alert">{logoutError}</span>}
+          <button type="button" className="navbar__logout" onClick={handleLogout}>Đăng xuất</button>
+        </div>
 
         <button
           ref={toggleRef}

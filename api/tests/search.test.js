@@ -1,15 +1,23 @@
+const path = require("node:path");
 require("dotenv").config();
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const request = require("supertest");
-const app = require("../src/app");
 const prisma = require("../src/prisma");
+const { closeSessionPool } = require("../src/services/session");
+const { createAuthenticatedAgent } = require("./helpers/authenticatedAgent");
 const { Prisma } = require("@prisma/client");
 const { fuzzyScoreSql, dishFuzzyScoreSql, FUZZY_SIMILARITY_THRESHOLD } = require("../src/search");
 
+let agent;
+
+test.before(async () => {
+  agent = await createAuthenticatedAgent();
+});
+
 test.after(async () =>
 {
-  await prisma.$disconnect();
+  await Promise.all([prisma.$disconnect(), closeSessionPool()]);
 });
 
 test("Vietnamese fuzzy search ignores accents, case, decomposed marks and đ in short queries", async () =>
@@ -81,13 +89,13 @@ test("Misspelled roast queries work while banh heo excludes dishes linked only t
 {
   for (const q of ["banh qauy", "banh heo"])
   {
-    const result = await request(app).get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q, pageSize: "100" });
+    const result = await agent.get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q, pageSize: "100" });
     assert.equal(result.body.ok, true);
     assert.ok(result.body.data.items.some((dish) => dish.name === "Bánh hỏi heo quay"));
     assert.ok(result.body.data.items.every((dish) => dish.name !== "B7 Seed 0039 - Lẩu Nấm Thanh Vị"));
     assert.equal(new Set(result.body.data.items.map((dish) => dish.id)).size, result.body.data.items.length);
   }
-  const exact = await request(app).get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q: "banh quay", pageSize: "100" });
+  const exact = await agent.get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q: "banh quay", pageSize: "100" });
   assert.equal(exact.body.ok, true);
   assert.ok(exact.body.data.items.every((item) => item.searchScore >= FUZZY_SIMILARITY_THRESHOLD));
   assert.ok(exact.body.data.items.every((item, index, items) => !index || items[index - 1].searchScore >= item.searchScore));
@@ -96,14 +104,14 @@ test("Misspelled roast queries work while banh heo excludes dishes linked only t
 test("Dish search for Banh quay excludes unrelated dishes and counts the same filtered set", async () =>
 {
   const query = { mode: "advanced", match: "fuzzy", q: "Banh quay", pageSize: "100" };
-  const result = await request(app).get("/api/dishes").query(query);
+  const result = await agent.get("/api/dishes").query(query);
   assert.equal(result.body.ok, true);
   assert.ok(result.body.data.items.every((dish) => dish.name !== "Mì Quảng Tôm Thịt"));
   const expected = await prisma.$queryRaw(Prisma.sql`
     SELECT count(*)::int AS total FROM dishes d WHERE ${dishFuzzyScoreSql("Banh quay")} >= 0.3
   `);
   assert.equal(result.body.data.total, expected[0].total);
-  const outside = await request(app).get("/api/dishes").query({ ...query, page: "99999" });
+  const outside = await agent.get("/api/dishes").query({ ...query, page: "99999" });
   assert.equal(outside.body.data.total, result.body.data.total);
   assert.deepEqual(outside.body.data.items, []);
 });
@@ -115,8 +123,8 @@ for (const match of ["fuzzy", "fulltext"])
     const ingredient = await prisma.ingredient.findFirst({ where: { name: { equals: "Thịt thăn bò Úc", mode: "insensitive" } } });
     assert.ok(ingredient, "Requires the ingredient from the restaurant data");
     const query = { mode: "advanced", match, q: "Thit than bo Uc", pageSize: "100" };
-    const plain = await request(app).get("/api/dishes").query(query);
-    const accented = await request(app).get("/api/dishes").query({ ...query, q: ingredient.name });
+    const plain = await agent.get("/api/dishes").query(query);
+    const accented = await agent.get("/api/dishes").query({ ...query, q: ingredient.name });
     assert.equal(plain.body.ok, true);
     assert.equal(accented.body.ok, true);
     const items = plain.body.data.items;
@@ -124,10 +132,10 @@ for (const match of ["fuzzy", "fulltext"])
     assert.equal(new Set(items.map((dish) => dish.id)).size, items.length);
     assert.equal(plain.body.data.total, accented.body.data.total);
     assert.deepEqual(items.map((dish) => dish.id), accented.body.data.items.map((dish) => dish.id));
-    const filtered = await request(app).get("/api/dishes").query({ ...query, category: "Món Nước", available: "false", minPrice: "0", maxPrice: "100000" });
+    const filtered = await agent.get("/api/dishes").query({ ...query, category: "Món Nước", available: "false", minPrice: "0", maxPrice: "100000" });
     assert.equal(filtered.body.ok, true);
     assert.ok(filtered.body.data.items.every((dish) => dish.category === "Món Nước" && !dish.available && dish.price <= 100000));
-    const next = await request(app).get("/api/dishes").query({ ...query, page: "2" });
+    const next = await agent.get("/api/dishes").query({ ...query, page: "2" });
     assert.equal(next.body.data.total, plain.body.data.total);
     assert.ok(next.body.data.items.every((dish) => !items.some((previous) => previous.id === dish.id)));
   });
@@ -136,8 +144,8 @@ for (const match of ["fuzzy", "fulltext"])
 test("Ingredient endpoints return the same ordered results for thit and thịt with advanced filters", async () =>
 {
   const query = { mode: "advanced", match: "fuzzy", category: "Thịt" };
-  const plain = await request(app).get("/api/ingredients").query({ ...query, q: "thit" });
-  const accented = await request(app).get("/api/ingredients").query({ ...query, q: "thịt" });
+  const plain = await agent.get("/api/ingredients").query({ ...query, q: "thit" });
+  const accented = await agent.get("/api/ingredients").query({ ...query, q: "thịt" });
   assert.equal(plain.body.ok, true);
   assert.equal(accented.body.ok, true);
   assert.ok(plain.body.data.some((item) => item.name.toLowerCase().includes("thịt")));
@@ -148,8 +156,8 @@ test("Ingredient endpoints return the same ordered results for thit and thịt w
 test("Dish fuzzy results and totals agree for pho and phở", async () =>
 {
   const query = { mode: "advanced", match: "fuzzy", pageSize: "100" };
-  const plain = await request(app).get("/api/dishes").query({ ...query, q: "pho" });
-  const accented = await request(app).get("/api/dishes").query({ ...query, q: "phở" });
+  const plain = await agent.get("/api/dishes").query({ ...query, q: "pho" });
+  const accented = await agent.get("/api/dishes").query({ ...query, q: "phở" });
   assert.equal(plain.body.ok, true);
   assert.equal(accented.body.ok, true);
   assert.ok(plain.body.data.total > 0);
@@ -167,24 +175,24 @@ for (const match of ["fuzzy", "fulltext"])
       mode: "advanced", match, q: dish.name, category: dish.category,
       minPrice: String(dish.price), maxPrice: String(dish.price), available: String(dish.available), pageSize: "100",
     };
-    const result = await request(app).get("/api/dishes").query(query);
+    const result = await agent.get("/api/dishes").query(query);
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, true);
     assert.ok(result.body.data.items.some((item) => item.id === dish.id));
     assert.ok(result.body.data.items.every((item) => item.category === dish.category && item.price === dish.price && item.available === dish.available));
     const scores = result.body.data.items.map((item) => item.searchScore);
     assert.ok(scores.every((score, index) => Number.isFinite(score) && (!index || scores[index - 1] >= score)));
-    const outside = await request(app).get("/api/dishes").query({ ...query, page: "99999" });
+    const outside = await agent.get("/api/dishes").query({ ...query, page: "99999" });
     assert.equal(outside.body.data.total, result.body.data.total);
     assert.deepEqual(outside.body.data.items, []);
-    const opposite = await request(app).get("/api/dishes").query({ ...query, available: String(!dish.available) });
+    const opposite = await agent.get("/api/dishes").query({ ...query, available: String(!dish.available) });
     assert.ok(opposite.body.data.items.every((item) => item.available !== dish.available));
   });
 }
 
 test("Empty text and boolean filters still allow browsing with zero price", async () =>
 {
-  const result = await request(app).get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q: " ", available: "", minPrice: "0", maxPrice: "0" });
+  const result = await agent.get("/api/dishes").query({ mode: "advanced", match: "fuzzy", q: " ", available: "", minPrice: "0", maxPrice: "0" });
   assert.equal(result.body.ok, true);
   assert.ok(result.body.data.items.every((item) => item.price === 0));
 });
@@ -196,12 +204,12 @@ test("Ingredient fuzzy search tolerates a typo and intersects category and unit"
   assert.ok(ingredient);
   const word = ingredient.name.split(/\s+/u).find((item) => Array.from(item).length >= 4);
   const query = { mode: "advanced", match: "fuzzy", q: ingredient.name.replace(word, word + "x"), category: ingredient.category, unit: ingredient.unit };
-  const result = await request(app).get("/api/ingredients").query(query);
+  const result = await agent.get("/api/ingredients").query(query);
   assert.equal(result.status, 200);
   assert.equal(result.body.ok, true);
   assert.ok(result.body.data.some((item) => item.id === ingredient.id));
   assert.ok(result.body.data.every((item) => item.category === ingredient.category && item.unit === ingredient.unit));
-  const noMatch = await request(app).get("/api/ingredients").query({ ...query, unit: "no-such-unit" });
+  const noMatch = await agent.get("/api/ingredients").query({ ...query, unit: "no-such-unit" });
   assert.deepEqual(noMatch.body.data, []);
 });
 
@@ -209,12 +217,12 @@ test("Chef basic search matches names only and treats wildcards literally", asyn
 {
   const chef = await prisma.chef.findFirst({ orderBy: { id: "asc" } });
   assert.ok(chef);
-  const result = await request(app).get("/api/chefs").query({ q: chef.name.toUpperCase() });
+  const result = await agent.get("/api/chefs").query({ q: chef.name.toUpperCase() });
   assert.equal(result.body.ok, true);
   assert.ok(result.body.data.some((item) => item.id === chef.id));
-  const wildcard = await request(app).get("/api/chefs").query({ q: "%" });
+  const wildcard = await agent.get("/api/chefs").query({ q: "%" });
   assert.ok(wildcard.body.data.every((item) => item.name.includes("%")));
-  const specialty = await request(app).get("/api/chefs").query({ q: chef.specialty });
+  const specialty = await agent.get("/api/chefs").query({ q: chef.specialty });
   assert.ok(specialty.body.data.every((item) => item.name.toLowerCase().includes(chef.specialty.toLowerCase())));
 });
 
@@ -222,7 +230,7 @@ test("Unsupported text rules return validation errors", async () =>
 {
   for (const route of ["/api/dishes", "/api/ingredients"])
   {
-    const result = await request(app).get(route).query({ mode: "advanced", match: "unknown" });
+    const result = await agent.get(route).query({ mode: "advanced", match: "unknown" });
     assert.equal(result.status, 200);
     assert.equal(result.body.ok, false);
     assert.equal(result.body.error.code, "VALIDATION_FAILED");
